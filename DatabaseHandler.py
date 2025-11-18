@@ -1,5 +1,6 @@
 import sqlite3
-from typing import List, Tuple, Any
+import pandas as pd
+from typing import List
 
 class DatabaseHandler:
     def __init__(self, db_path: str):
@@ -31,40 +32,42 @@ class DatabaseHandler:
         if not self.connection:
             raise ConnectionError("Database connection is not open.")
         
-        # Robust validation: Check if the column name actually exists in the table.
         actual_columns = self.get_column_names()
         if column_name not in actual_columns:
             raise ValueError(f"Invalid column name: '{column_name}' does not exist in the table.")
 
         cursor = self.connection.cursor()
-        # Use quotes to safely handle column names that contain spaces.
         cursor.execute(f'SELECT DISTINCT "{column_name}" FROM patients WHERE "{column_name}" IS NOT NULL ORDER BY "{column_name}"')
         return [row[0] for row in cursor.fetchall()]
 
-    def get_rows_by_patient_id(self, patient_id: str) -> List[Tuple[Any, ...]]:
-        """Fetches all rows for a given patient_id from the 'patients' table."""
+    def get_rows_by_patient_id(self, patient_id: str) -> pd.DataFrame:
+        """Fetches all rows for a given patient_id and returns them as a DataFrame."""
         if not self.connection:
             raise ConnectionError("Database connection is not open.")
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT * FROM patients WHERE patient_id = ?", (patient_id,))
-        return cursor.fetchall()
+        
+        query = "SELECT * FROM patients WHERE patient_id = ?"
+        df = pd.read_sql_query(query, self.connection, params=(patient_id,))
+        return df
 
-    def filter_by_breast_side(self, rows: List[Tuple[Any, ...]], side: str) -> List[Tuple[Any, ...]]:
-        """Filters a list of rows based on the 'left or right breast' column."""
-        # This relies on a fixed column index and is less robust.
-        column_index = 2 
+    def filter_by_breast_side(self, df: pd.DataFrame, side: str) -> pd.DataFrame:
+        """Filters a DataFrame based on the 'left or right breast' column."""
+        if df.empty or 'left or right breast' not in df.columns:
+            return pd.DataFrame()
+        
         side_upper = side.upper()
-        return [row for row in rows if len(row) > column_index and row[column_index].upper() == side_upper]
+        return df[df['left or right breast'].str.upper() == side_upper].copy()
 
-    def filter_by_image_view(self, rows: List[Tuple[Any, ...]], image_view: str) -> List[Tuple[Any, ...]]:
-        """Filters a list of rows based on the 'image view' column."""
-        # This relies on a fixed column index and is less robust.
-        column_index = 3
+    def filter_by_image_view(self, df: pd.DataFrame, image_view: str) -> pd.DataFrame:
+        """Filters a DataFrame based on the 'image view' column."""
+        if df.empty or 'image view' not in df.columns:
+            return pd.DataFrame()
+            
         image_view_upper = image_view.upper()
-        return [row for row in rows if len(row) > column_index and row[column_index].upper() == image_view_upper]
+        return df[df['image view'].str.upper() == image_view_upper].copy()
 
-    def get_dicom_paths(self, rows: List[Tuple[Any, ...]]) -> List[str]:
-        """Extracts the 'global image dicom path' from a list of rows."""
-        # This relies on a fixed column index and is less robust.
-        column_index = 14
-        return [row[column_index] for row in rows if len(row) > column_index]
+    def get_dicom_paths(self, df: pd.DataFrame) -> List[str]:
+        """Extracts the 'global image dicom path' from a DataFrame."""
+        if df.empty or 'global image dicom path' not in df.columns:
+            return []
+        
+        return df['global image dicom path'].tolist()
