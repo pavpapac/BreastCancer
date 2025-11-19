@@ -2,7 +2,7 @@ import DatabaseHandler
 import DicomHandler
 from pathlib import Path
 import pandas as pd
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 
 class PatientDataFilterLogic:
     """
@@ -16,7 +16,6 @@ class PatientDataFilterLogic:
     def _get_full_filtered_data(self, patient_id: str, breast_side: str, image_view: str) -> pd.DataFrame:
         """
         Private helper method to get the complete filtered DataFrame.
-        This centralizes the filtering logic to avoid code duplication.
         """
         with DatabaseHandler.DatabaseHandler(self.db_path) as dbh:
             patient_df = dbh.get_rows_by_patient_id(patient_id)
@@ -24,46 +23,59 @@ class PatientDataFilterLogic:
             final_filtered_df = dbh.filter_by_image_view(side_filtered_df, image_view)
         return final_filtered_df
 
-    def get_ui_selection_options(self) -> Dict[str, List[str]]:
-        """
-        Fetches all distinct values needed to populate the UI selection widgets.
-        """
-        options = {}
+    def get_all_patient_ids(self) -> List[str]:
+        """Fetches a list of all unique patient IDs."""
         try:
             with DatabaseHandler.DatabaseHandler(self.db_path) as dbh:
-                options['patient_ids'] = dbh.get_distinct_values('patient_id')
-                options['breast_sides'] = dbh.get_distinct_values('left or right breast')
-                options['image_views'] = dbh.get_distinct_values('image view')
+                return dbh.get_distinct_values('patient_id')
+        except Exception as e:
+            print(f"Error fetching patient IDs: {e}")
+            return []
+
+    def get_dependent_options(self, patient_id: str, breast_side: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Gets the available filter options based on prior selections.
+        """
+        options = {'breast_sides': [], 'image_views': []}
+        if not patient_id:
+            return options
+        
+        try:
+            with DatabaseHandler.DatabaseHandler(self.db_path) as dbh:
+                patient_df = dbh.get_rows_by_patient_id(patient_id)
+                if patient_df.empty:
+                    return options
+
+                if breast_side:
+                    side_df = dbh.filter_by_breast_side(patient_df, breast_side)
+                    options['breast_sides'] = patient_df['left or right breast'].unique().tolist()
+                    options['image_views'] = side_df['image view'].unique().tolist()
+                else:
+                    options['breast_sides'] = patient_df['left or right breast'].unique().tolist()
+                    options['image_views'] = patient_df['image view'].unique().tolist()
+            
             return options
         except Exception as e:
-            print(f"Error fetching UI options: {e}")
-            return {'patient_ids': [], 'breast_sides': [], 'image_views': []}
+            print(f"Error fetching dependent options: {e}")
+            return options
 
     def get_patient_filtered_data(self, patient_id: str, breast_side: str, image_view: str) -> pd.DataFrame:
         """
-        Gets filtered clinical data, removes redundant and file path columns, and returns it for presentation.
+        Gets filtered clinical data, removes redundant columns, and returns it for presentation.
         """
-        # Call the private helper to get the full data
         final_filtered_df = self._get_full_filtered_data(patient_id, breast_side, image_view)
-
-        # Shape the data for presentation by dropping known columns
         columns_to_drop = [
-            'patient_id', 'breast_density', 'left or right breast', 'image view',
+            'patient_id', 'left or right breast', 'image view',
             'image file path', 'cropped image file path', 'ROI mask file path',
             'global image dicom path', 'global mask dicom path'
         ]
-        presentation_df = final_filtered_df.drop(columns=columns_to_drop, errors='ignore')
-        
-        return presentation_df
+        return final_filtered_df.drop(columns=columns_to_drop, errors='ignore')
 
     def get_patient_dicom_path(self, patient_id: str, breast_side: str, image_view: str) -> Path:
         """
-        Retrieves the DICOM path by calling the internal filtering logic.
+        Retrieves the DICOM path by re-filtering the data internally.
         """
-        # Call the private helper to get the full data
         final_filtered_df = self._get_full_filtered_data(patient_id, breast_side, image_view)
-
-        # Extract the path from the full DataFrame
         with DatabaseHandler.DatabaseHandler(self.db_path) as dbh:
             dicom_paths = dbh.get_dicom_paths(final_filtered_df)
             if not dicom_paths:
@@ -82,3 +94,27 @@ class PatientDataFilterLogic:
         image_metadata = dcmh.get_metadata()
         
         return pixel_array, image_metadata
+
+if __name__ == '__main__':
+    pdfl = PatientDataFilterLogic("clinical_database.db")
+    
+    def check_distinct(column_name):
+        try:
+            with DatabaseHandler.DatabaseHandler(pdfl.db_path) as dbh:
+                values = dbh.get_distinct_values(column_name)
+                # Sort numeric values correctly
+                try:
+                    sorted_values = sorted(values, key=int)
+                except ValueError:
+                    sorted_values = sorted(values)
+                print(f"Unique values for '{column_name}': {sorted_values}")
+        except Exception as e:
+            print(f"Error checking '{column_name}': {e}")
+
+    print("--- Investigating Unique Values for Tooltips ---")
+    check_distinct('pathology')
+    check_distinct('breast_density')
+    check_distinct('mass shape')
+    check_distinct('mass margins')
+    check_distinct('subtlety')
+    print("--- Investigation Complete ---")
