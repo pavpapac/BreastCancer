@@ -1,8 +1,6 @@
 import streamlit as st
 from PatientDataFilterLogic import PatientDataFilterLogic
-import pandas as pd
-import numpy as np
-from PIL import Image
+from ImageProcessing import ImageProcessing
 
 # --- App Configuration ---
 st.set_page_config(layout="wide")
@@ -64,15 +62,7 @@ if all([selected_patient_id, selected_breast_side, selected_image_view]):
                     st.subheader("Medical Image")
                     if pixel_array is not None:
                         # Normalize for display contrast
-                        pixel_array_float = pixel_array.astype(float)
-                        min_val, max_val = pixel_array_float.min(), pixel_array_float.max()
-                        if max_val > min_val:
-                            normalized_pixels = (pixel_array_float - min_val) * (255.0 / (max_val - min_val))
-                        else:
-                            normalized_pixels = np.zeros(pixel_array.shape)
-                        
-                        image = Image.fromarray(normalized_pixels.astype(np.uint8))
-                        
+                        image = ImageProcessing().normalize_to_pil(pixel_array)
                         st.image(image, caption=f"DICOM Image for {selected_patient_id}", use_column_width=True)
                     else:
                         st.error("Could not load pixel data from the DICOM file.")
